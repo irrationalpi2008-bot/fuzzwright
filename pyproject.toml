@@ -1,0 +1,32 @@
+[project]
+name = "fuzzwright"
+version = "0.1.0"
+description = "An LLM that reads your code, writes fuzz harnesses, runs them, and hands you real bug reports."
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "irrationalpi2008-bot", email = "irrationalpi2008@gmail.com" }
+]
+requires-python = ">=3.12"
+keywords = ["fuzzing", "security", "testing", "llm", "hypothesis", "bug-finding"]
+dependencies = [
+    "anthropic>=2.12.0",
+    "hypothesis>=6.170.17",
+    "pydantic>=2.14.4",
+    "rich>=15.0.0",
+]
+
+[project.scripts]
+fuzzwright = "fuzzwright.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.8,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
