@@ -8,24 +8,37 @@ uvx --from git+https://github.com/irrationalpi2008-bot/fuzzwright fuzzwright hun
 
 > Early alpha. Not on PyPI yet; install from GitHub as shown.
 
-Illustrative output:
+**No API key needed:** if you have [Claude Code](https://claude.com/claude-code) installed and logged in, fuzzwright runs on your Claude subscription.
+
+Real output from the bundled demo library (trimmed):
 
 ```
-scan 31 candidate entry points in mylib
-  → mylib.config:parse_duration   hand-rolled tokenizer, trailing-input handling looks fragile
-  → mylib.codec:decode_rle        loop index depends on decoded data
-──────────────────────── mylib.codec:decode_rle ────────────────────────
-  ✗ Hang at check  input=b'\x00\x00'
-    bug/high: Infinite loop when a run has count 0 (repro: hung)
-──────────────────────── mylib.config:parse_duration ───────────────────
-  ✗ AssertionError at harness.py:check  input='0h0'
-    bug/medium: Trailing number without unit is silently dropped (repro: raised)
-────────────────────────────────────────────────────────────────────────
-2 likely bug(s), 2 unique failure(s) in 94s for ~$0.31
-report: fuzzwright-out/REPORT.md
+fuzzwright 0.1.0  backend=claude-code  model=default  sandbox=bubblewrap (no network, read-only fs)
+scan 6 candidate entry points in buggylib
+  → buggylib:decode_rle  Byte-level decoder with explicit odd-length ParseError contract; ...
+  → buggylib:escape  Encoder half of an inverse pair with parse_kv/unescape; round-trip ...
+──────────────────────────── buggylib:decode_rle ────────────────────────────
+  ✗ FuzzHang at check  input=b'\x00&'
+    bug/high: decode_rle infinite-loops on any zero-count run (e.g. b'\x00&') (repro: raised)
+──────────────────────────── buggylib:parse_nested ──────────────────────────
+  ✗ IndexError at __init__.py:value:82  input='['
+    bug/medium: parse_nested raises IndexError instead of ParseError on unterminated '[' (repro: raised)
+  ✗ ValueError at __init__.py:value:93  input='²'
+    bug/low: parse_nested leaks ValueError on Unicode "digits" instead of ParseError (repro: raised)
+──────────────────────────── buggylib:escape ────────────────────────────────
+  ✗ AssertionError at harness.py:check:65  input='\\\\'
+    bug/high: escape() fails to escape its own backslash escape character, corrupting any value ...
+...
+7 likely bug(s), 7 unique failure(s) in 1252s
 ```
 
-<!-- TODO: replace the block above with a GIF recorded with `vhs` or asciinema -->
+The demo has 5 planted bugs (answer key: [`examples/buggylib/ANSWERS.md`](examples/buggylib/ANSWERS.md)),
+and its source contains no hints. In this run fuzzwright found 4 of the 5. It also found the
+Unicode-digit bug (`'²'.isdigit()` is true, but `int()` rejects it), which nobody planted. It missed
+the silent `"1h5"` → 3600 bug because its harness never asserted that a trailing number needs a unit.
+The escape bug is reported twice, once from each side of the round-trip.
+
+<!-- TODO: add a GIF recorded with `vhs` or asciinema -->
 
 ## Why
 
@@ -59,8 +72,24 @@ fuzzwright gives that afternoon to an LLM:
 
 ```bash
 uv tool install git+https://github.com/irrationalpi2008-bot/fuzzwright
-export ANTHROPIC_API_KEY=...      # or: ant auth login
 ```
+
+Then pick how fuzzwright talks to Claude:
+
+| Backend | Setup | Cost |
+|---|---|---|
+| `claude-code` | [Claude Code](https://claude.com/claude-code) installed and logged in (`claude`, then `/login`) | With a Claude Pro/Max subscription login, nothing extra is billed, but it counts toward your plan's usage limits. If Claude Code is logged in with a Console (API) account or uses Bedrock/Vertex, it's billed there. |
+| `api` | `export ANTHROPIC_API_KEY=...` or `ant auth login` | Pay-as-you-go API pricing. Faster. |
+
+`--backend auto`, the default, picks:
+1. the API if `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set, or an `ant auth login` profile exists;
+2. otherwise Claude Code, if `claude` is on your PATH;
+3. otherwise the API, which will then ask you for credentials.
+
+With `claude-code`, fuzzwright removes `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and
+`ANTHROPIC_BASE_URL` from the environment it passes to Claude Code, and loads no user settings
+or hooks. It checks `claude auth status` and the report says whether the run went on a
+subscription or was billed.
 
 The target package must be importable by the Python that runs fuzzwright. The
 simplest way is to run fuzzwright from inside the project's environment:
@@ -89,7 +118,8 @@ targets/*/harness.py the generated harnesses, which you can keep as regression t
 
 The exit code is `1` when likely bugs are found, so you can use it in CI.
 
-Try it on the bundled demo library, which has five planted bugs:
+Try it on the bundled demo library, which has five planted bugs (don't read
+`ANSWERS.md` first):
 
 ```bash
 uv run fuzzwright hunt examples/buggylib
@@ -113,8 +143,10 @@ form, not in a public issue.
 
 ## Cost
 
-A 5-target hunt typically makes 10–20 calls. The report prints the exact cost.
-Use `--model claude-sonnet-5-5` or `--effort medium` to make it cheaper.
+A 5–6 target hunt makes about 13–17 model calls. On the demo library that came to about
+$1.30–2.50 at API prices. With the `claude-code` backend the report shows that figure as
+the API-equivalent cost, and nothing is billed. Use `--model sonnet` (or
+`--model claude-sonnet-5-5` for the API) or `--effort medium` to make it lighter.
 
 ## Roadmap
 

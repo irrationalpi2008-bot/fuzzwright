@@ -56,3 +56,21 @@ def test_hunt_end_to_end(tmp_path):
     text = report.read_text()
     assert "IndexError on unterminated list" in text
     assert (tmp_path / "findings.json").exists()
+
+
+class ExplodingBrain(FakeBrain):
+    """Second target's harness request blows up with a non-RuntimeError."""
+    def plan(self, cands, n):
+        return Plan(targets=[TargetPick(target_id="buggylib:parse_nested", why="", bug_classes=[]),
+                             TargetPick(target_id="buggylib:parse_kv", why="", bug_classes=[])])
+
+    def write_harness(self, c, hint):
+        if c.qualname == "parse_kv":
+            raise ValueError("schema mismatch from the model")
+        return Harness(reasoning="", expected_exceptions_note="", harness_code=GOOD), []
+
+
+def test_one_target_error_does_not_lose_other_findings(tmp_path):
+    res = hunt(TARGET, tmp_path, n_targets=2, brain=ExplodingBrain(), max_examples=300, rounds=1)
+    assert res.findings, "findings from the first target must survive"
+    assert [t.status for t in res.targets][1] == "error"

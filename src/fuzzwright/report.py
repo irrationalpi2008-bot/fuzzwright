@@ -61,8 +61,10 @@ def write(result: HuntResult, out: Path) -> Path:
         f"# fuzzwright report: `{result.package}`\n",
         f"**{bugs} likely bug(s)** out of {len(result.findings)} unique failure(s), "
         f"{len(result.targets)} targets, {total_examples:,} generated inputs, "
-        f"{result.seconds:.0f}s, ~${result.cost:.2f} in API calls ({result.calls} calls, `{result.model}`).\n",
+        f"{result.seconds:.0f}s, {result.calls} model calls (`{result.model}`), ~${result.cost:.2f}"
+        + (f" ({result.cost_note})" if result.cost_note else "") + ".\n",
         f"Sandbox: {result.sandbox}\n",
+        *(["> Interrupted before all targets finished; results are partial.\n"] if result.interrupted else []),
         "## Findings\n",
         "| # | Verdict | Severity | Title | Target | Repro |\n|---|---|---|---|---|---|",
         *(rows or ["| – | – | – | no failures found | – | – |"]),

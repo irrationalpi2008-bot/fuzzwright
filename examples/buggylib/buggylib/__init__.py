@@ -1,8 +1,4 @@
-"""A tiny library with planted bugs, used to demo and test fuzzwright.
-
-Every function documents that bad input raises ParseError. Each one has a bug
-that makes it fail some other way.
-"""
+"""buggylib: small text and byte parsers."""
 
 
 class ParseError(ValueError):
@@ -27,7 +23,6 @@ def parse_duration(text: str) -> int:
             num = ""
         else:
             raise ParseError(f"bad char {ch!r}")
-    # BUG: trailing number without a unit is silently dropped ("1h5" == 3600)
     return total
 
 
@@ -37,14 +32,14 @@ def parse_kv(text: str) -> dict[str, str]:
     for part in text.split(";"):
         if not part:
             continue
-        key, value = part.split("=")  # BUG: ValueError on 'a' or 'a=b=c', not ParseError
+        key, value = part.split("=")
         out[key.strip()] = value.strip()
     return out
 
 
 def escape(s: str) -> str:
     """Escape ';' and '=' so the result is safe inside parse_kv values."""
-    return s.replace(";", "\\;").replace("=", "\\=")  # BUG: backslash itself not escaped
+    return s.replace(";", "\\;").replace("=", "\\=")
 
 
 def unescape(s: str) -> str:
@@ -69,7 +64,7 @@ def decode_rle(data: bytes) -> bytes:
     while i < len(data):
         count, byte = data[i], data[i + 1]
         out += bytes([byte]) * count
-        i += count and 2  # BUG: a zero count never advances -> infinite loop
+        i += count and 2
     return bytes(out)
 
 
@@ -84,7 +79,7 @@ def parse_nested(text: str):
         if text[pos] == "[":
             pos += 1
             items = []
-            while text[pos] != "]":  # BUG: IndexError on unterminated '[1,'
+            while text[pos] != "]":
                 items.append(value())
                 if text[pos] == ",":
                     pos += 1

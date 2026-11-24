@@ -41,8 +41,24 @@ def cmd_run(a):
     sys.exit(1 if r.findings else 0)
 
 
+def pick_backend(choice: str) -> str:
+    """auto: API credentials (env var or `ant auth login` profile) win; else Claude Code if installed; else API."""
+    import os
+    import shutil
+    if choice != "auto":
+        return choice
+    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+        return "api"
+    cfg = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    if os.environ.get("ANTHROPIC_PROFILE") or os.path.isdir(os.path.join(cfg, "anthropic")):
+        return "api"  # `ant auth login` profile: the SDK picks it up
+    if shutil.which("claude"):
+        return "claude-code"
+    return "api"
+
+
 def cmd_hunt(a):
-    from .llm import Brain
+    from .llm import Brain, ClaudeCodeBrain
     from .pipeline import hunt
     from .report import write
     from .runner import sandbox_name
@@ -51,9 +67,17 @@ def cmd_hunt(a):
     if a.no_sandbox:
         console.print("[yellow]warning:[/] running LLM-written code without bubblewrap isolation")
     label = sandbox_name(not a.no_sandbox)
-    console.print(f"[bold]fuzzwright {__version__}[/]  model={a.model}  sandbox={label}")
+    backend = pick_backend(a.backend)
+    if a.backend == "auto":
+        why = "API credentials found" if backend == "api" else "no API credentials, `claude` is installed"
+        console.print(f"[dim]backend auto -> {backend} ({why})[/]")
+    console.print(f"[bold]fuzzwright {__version__}[/]  backend={backend}  "
+                  f"model={a.model or 'default'}  sandbox={label}")
     try:
-        brain = Brain(model=a.model, effort=a.effort)
+        if backend == "claude-code":
+            brain = ClaudeCodeBrain(model=a.model, effort=a.effort)
+        else:
+            brain = Brain(model=a.model, effort=a.effort)
         res = hunt(Path(a.target), Path(a.out), n_targets=a.targets, brain=brain,
                    max_examples=a.examples, rounds=a.rounds, timeout=a.timeout,
                    sandbox=not a.no_sandbox, sandbox_label=label, console=console)
@@ -68,11 +92,14 @@ def cmd_hunt(a):
     except anthropic.APIConnectionError:
         console.print("[red]Could not reach the Anthropic API.[/] Check your connection and retry.")
         sys.exit(2)
+    except (RuntimeError, anthropic.APIError) as e:  # e.g. Claude Code not logged in, before any target ran
+        console.print(f"[red]{e}[/]")
+        sys.exit(2)
     report = write(res, Path(a.out))
     bugs = sum(f.is_bug for f in res.findings)
     console.rule()
     console.print(f"[bold]{bugs} likely bug(s)[/], {len(res.findings)} unique failure(s) "
-                  f"in {res.seconds:.0f}s for ~${res.cost:.2f}")
+                  f"in {res.seconds:.0f}s, ~${res.cost:.2f} ({res.cost_note})")
     console.print(f"report: [cyan]{report}[/]")
     sys.exit(1 if bugs else 0)
 
@@ -88,7 +115,11 @@ def main(argv=None):
     h.add_argument("--examples", type=int, default=2000, help="inputs per fuzz round (default 2000)")
     h.add_argument("--rounds", type=int, default=3, help="re-runs that skip known crashes (default 3)")
     h.add_argument("--timeout", type=int, default=180, help="seconds per fuzz round (default 180)")
-    h.add_argument("--model", default="claude-opus-5-5")
+    h.add_argument("--backend", default="auto", choices=["auto", "api", "claude-code"],
+                   help="api = Anthropic API key; claude-code = your Claude Code login/subscription "
+                        "(auto: API if ANTHROPIC_API_KEY is set, else Claude Code)")
+    h.add_argument("--model", default=None,
+                   help="model id or alias (default: claude-opus-5-5 for api, your plan's default for claude-code)")
     h.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
     h.add_argument("-o", "--out", default="fuzzwright-out")
     h.add_argument("--no-sandbox", action="store_true", help="skip bubblewrap (not recommended)")
